@@ -1,0 +1,84 @@
+#Load required packages (do install.packages("name of package") if you've never used it before)
+library(raster);library(sp);library(ggmap);library(dplyr);library(lubridate);library(adehabitatHR);library(sqldf);library(sf);library(terra)
+
+#Import cleaned location mega-file (changed file pathway to your computer)
+GBIF_CASPData<-st_read("/Users/tjorgensen/Downloads/GBIF-Cassins_Sparrow-1980-2025-2.gpkg")
+eBird_CASPData<-st_read("/Users/tjorgensen/Downloads/eBird-Cassins_Sparrow-1980-2025-2.gpkg")
+eBirdEdited<-subset(eBird_CASPData,select = -day)
+TotalCASPData<-unique(rbind(GBIF_CASPData,eBirdEdited))
+plot(TotalCASPData)
+
+Breeding2021CASP <- TotalCASPData %>% 
+  filter(year == 2021 & month <= 9 & month >= 4)
+Breeding2021CASP_SPDF <- st_as_sf(Breeding2021CASP, coords = c("longitude", "latitude"), crs = 4326)
+
+aea_crs <- "+proj=aea +lat_1=29.5 +lat_2=45.5 +lat_0=23 +lon_0=-96 +datum=WGS84 +units=m +no_defs"
+Breeding2021CASP_reProj<-st_transform(Breeding2021CASP_SPDF,crs = aea_crs)
+
+
+require(adehabitatHR)
+
+geom_df <- as.data.frame(st_coordinates(st_geometry(Breeding2021CASP_reProj_SPDF)))
+Breeding2021CASP_reProj_SPDF$NewLong <- geom_df[, 1]
+Breeding2021CASP_reProj_SPDF$NewLat <- geom_df[, 2]
+Breeding2021CASP_reProj2_SPDF <- st_as_sf(Breeding2021CASP_reProj_SPDF, coords = c("NewLong","NewLat"), crs = 4326)
+CASPCoords <- Breeding2021CASP_reProj2_SPDF[, c("species", "NewLong", "NewLat")]
+
+
+  coords1 <- matrix(c(-1509450, 1066726, -83304, 300000, -175000, 1600000, -648011, 2166664), ncol = 2, byrow = TRUE)
+  p1 <- Polygon(coords1)
+  polys <- Polygons(list(p1), ID = "polygons")
+  spPolygons <- SpatialPolygons(list(polys), proj4string = CRS(aea_crs))
+  df <- data.frame(
+    ID = c("polygons"),
+    area = c(1),
+    stringsAsFactors = FALSE
+  )
+  row.names(df) <- "polygons"
+  CASPHabitatPolygon <- SpatialPolygonsDataFrame(spPolygons, data = df)
+
+LC2021Raster<-raster(paste0("/Users/tjorgensen/Downloads/Annual_NLCD_LndCov_2021_CU_C1V0.tif"))
+my_color_palette <- colorRampPalette(rainbow(16))
+plot(LC2021Raster,col=rainbow(16))
+points(Breeding2021CASP_reProj2_SPDF$geom,pch=19,cex=0.5,col=rgb(0,0,0,0.2))
+lines(CASPHabitatPolygon, col = "red", lwd=3)
+
+CASP2021Observed<-Breeding2021CASP_reProj2_SPDF[sample(1:nrow(Breeding2021CASP_reProj2_SPDF),200),c("NewLong","NewLat")]
+
+class(StupidSparrowWorkaround2)
+st_crs(CASP2021Observed)
+st_crs(StupidSparrowWorkaround2)
+CASP2021Random<-spsample(CASPHabitatPolygon,1000,"random")@coords
+plot(CASP2021Random, asp = 1, col = "darkblue", pch = 19, cex = 0.5)
+points(CASP2021Observed, pch = 19, col = "orange", cex = 0.5)
+CASP2021RandomDF <- as.data.frame(CASP2021Random)
+CASP2021RandomDF <- rename(CASP2021RandomDF, NewLong = x, NewLat = y)
+
+df <- rename(df, new_col1 = old_col1, new_col2 = old_col2)
+
+
+
+class(CASP2021Observed)
+class(CASP2021Random)
+
+RSF2021<-data.frame(X=c(CASP2021Observed[,1],CASP2021Random[,1]),Y=c(CASP2021Observed[,2],CASP2021Random[,2]),Used=c(rep(TRUE,nrow(CASP2021Observed)),rep(FALSE,nrow(CASP2021Random))))
+
+
+SampleTable4<-data.frame(X=c(CASP2021Observed[,1],CASP2021Random[,1]),Y=c(CASP2021Observed[,2]))
+
+RSF2021<-RSF2021 %>%
+  filter(X != 0)
+RSF2021$LandType<-raster::extract(LC2021Raster,RSF2021[,1:2])
+
+RSF2021False<- RSF2021 %>%
+  filter(Used == "FALSE")
+RSF2021True<- RSF2021 %>%
+  filter(Used == "TRUE")
+
+ggplot(RSF2021, aes(x = LandType)) +
+  geom_histogram(aes(y = ..density..),fill = "steelblue", color = "black") +
+  geom_vline(xintercept = 52, color = "red") +
+  facet_wrap(~ Used, ncol = 2) +
+  labs(x = "Land Cover Selection in Cassin's Sparrow Breeding Area (Left is randomly selected points, Right is CASP observations)", y = "Relative Frequency of LC Type")
+
+
